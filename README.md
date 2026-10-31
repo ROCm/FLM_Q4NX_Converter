@@ -519,6 +519,31 @@ flm serve qwen3vl-it:4b-custom
 - `configs/`: JSON configuration files for supported model architectures.
 
 
+## Verifying a Qwen3.5-family conversion
+
+`convert.py` picks the Qwen3.5 / Qwen3.5-MoE converter from the GGUF geometry (`-f` is only needed for fine-tunes
+with a custom name).  To check a conversion against the original HF checkpoint -- independent of how llama.cpp laid
+the GGUF out:
+
+```bash
+python convert.py -i Qwen3.5-2B-Q4_K.gguf -o out/                      # language weights
+python check_qwen35_family.py --hf <HF dir> --q4nx out/model.q4nx --layers all
+python convert.py -i mmproj-Qwen3.5-2B-BF16.gguf -o out-vision/ -t vision
+python check_qwen35_vision.py --hf <HF dir> --q4nx out-vision/model.q4nx
+python check_arch_detect.py qwen35-2B=Qwen3.5-2B-Q4_K.gguf             # auto-detection
+python check_family_regression.py --base-ref <ref> --gguf X.gguf -f <family>   # byte-identical vs a ref
+```
+
+`check_qwen35_family.py` decodes the q4nx blocks and compares every tensor with HF (head order, q/gate layout, norm
+convention, alpha/beta padding, tied/untied head, MoE experts, MTP placement, no leaked decoder layers).
+`make_tiny_qwen35_hf.py` writes a small random-weight HF checkpoint with a chosen geometry (delta-net ratio, untied
+head, MTP block, irregular layer pattern, `--moe`) so a path can be exercised end to end (HF -> llama.cpp
+`convert_hf_to_gguf.py` -> `llama-quantize` -> `convert.py` -> checker) without the real weights.
+
+A GGUF that carries an MTP block (`nextn_predict_layers` > 0) has it dropped: it used to be written as a bogus extra
+decoder layer.  The vision output is written as `model.q4nx`; convert it into its own folder (the engine reads it as
+`vision_weight.q4nx`).
+
 ## Known Issues
 - The converter outputs either Q4_0 or Q4_1 quantization format based on the setting in config files for each model. Input GGUF files can use other quantization formats — the converter will dequantize and re-quantize automatically, though this may introduce additional quantization error.
 - For GPT-OSS:20B models, the converter currently uses the original `model.embed_tokens.weight` from the safetensors from OpenAI due to issues with Q4_1 quantization (from our experience, Q4_1 quantization messes up the quantization of the embedding layer for this model). 

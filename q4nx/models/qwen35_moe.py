@@ -28,7 +28,7 @@ class QWEN35_A3B(__Q4NX_Converter, model_arch=ModelArch.QWEN35_A3B):
             if reorder_linear_required:
                 print("[INFO] Reorder linear required!")
 
-            full_attntion_interval = self.gguf_reader.fields["qwen35moe.full_attention_interval"].contents()            
+            self._drop_mtp_tensors()
             if not self._has_lm_head():
                 print("[INFO] Model does not have a lm_head, use embedding weights as lm_head")
                 unpacked = self.gguf_tensors["token_embd.weight"].unpack(GGMLQuantizationType.Q8_0)
@@ -72,7 +72,7 @@ class QWEN35_A3B(__Q4NX_Converter, model_arch=ModelArch.QWEN35_A3B):
 
                 unpacked = gguf_tensor.unpack(self.tensor_q4nx_type_map[gguf_tensor.name])
 
-                if layer_id % full_attntion_interval == (full_attntion_interval - 1):    
+                if self._is_full_attention_layer(layer_id):
                     if "q_proj" in self.forward_name_map[gguf_tensor.name]: # for llama q_proj, the order is special
                         print("[INFO] Seperate q, gate for q_proj")
                         DH = self.gguf_reader.fields["qwen35moe.attention.value_length"].contents()

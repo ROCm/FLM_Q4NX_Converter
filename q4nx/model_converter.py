@@ -217,6 +217,41 @@ class __Q4NX_Converter(ABC):
                 return True 
         return False
 
+    # ---- Qwen3.5-family layer bookkeeping -----------------------------------
+    def _is_full_attention_layer(self, layer_id: int) -> bool:
+        """Full (gated softmax) attention block, as opposed to gated delta-net.
+
+        Only a full-attention block has `attn_q.weight`.  Asking the GGUF is
+        right for every layout; "every Nth block" is not (d3:edge is a 0.8B-size
+        model with full attention at 2, 5, 8, 9, 10, 11).
+        """
+        return f"blk.{layer_id}.attn_q.weight" in self.gguf_tensors
+
+    def _drop_mtp_tensors(self):
+        """Remove the next-token-prediction (MTP) block from `gguf_tensors`.
+
+        Newer llama.cpp exports append it as block `block_count - 1` and count it
+        in `block_count` (`nextn_predict_layers` = 1).  It is a full-attention
+        block with extra `nextn.*` tensors, so left in it would be written as a
+        bogus extra decoder layer `model.layers.<block_count - 1>` (and, for the
+        modulo layer rule, converted as a delta-net layer).  Converters that use
+        the MTP head keep it themselves (see qwen38.py) and do not call this.
+        """
+        n_mtp = 0
+        for name, field in self.gguf_reader.fields.items():
+            if name.endswith(".nextn_predict_layers"):
+                n_mtp = int(field.contents())
+        if n_mtp <= 0:
+            return
+        first = self.num_layers - n_mtp
+        drop = [k for k, t in self.gguf_tensors.items()
+                if (m := re.match(r"^blk\.(\d+)\.", t.name)) and int(m.group(1)) >= first]
+        for k in drop:
+            del self.gguf_tensors[k]
+        print(f"[INFO] Dropped {len(drop)} tensors of the MTP block (blk.{first}..): "
+              f"this model has no use for them, {first} decoder layers remain")
+        self.num_layers = first
+
     def _export_q4nx_tensors(self, q4nx_path: str):
         print(f"[INFO] Saving Q4NX tensors to {q4nx_path}/model.q4nx...")
         create_dir_if_not_exists(q4nx_path)
@@ -1092,6 +1127,56 @@ class __Q4NX_Converter(ABC):
         return added_tokens
 
 
+#: (decoder layers without the MTP block, hidden size) -> converter, for GGUFs whose
+#: `general.architecture` is `qwen35` and whose name says Qwen3.x (3.5, 3.6, ...).
+_QWEN35_GEOMETRY = {
+    (24, 1024): ModelArch.QWEN35_08B,
+    (24, 2048): ModelArch.QWEN35_2B,
+    (32, 2560): ModelArch.QWEN35_4B,
+    (32, 4096): ModelArch.QWEN35_9B,
+}
+if hasattr(ModelArch, "QWEN35_27B"):
+    _QWEN35_GEOMETRY[(64, 5120)] = ModelArch.QWEN35_27B
+
+
+def _resolve_qwen35(reader: GGUFReader, basename: str | None, name: str | None) -> ModelArch | None:
+    """Pick the Qwen3.5-family converter for a stock llama.cpp `qwen35` GGUF.
+
+    Stock exports name the model `general.basename = "Qwen3.5"` (size only in
+    `general.size_label`), which the alias table cannot match by prefix except as the
+    plain `qwen3` alias -- the wrong converter.  The size is in the geometry instead.
+    Returns None for anything that does not look like a Qwen3.x export, so MiniCPM-V and
+    other `qwen35`-architecture models keep resolving through their own names.
+    """
+    labels = [x.lower() for x in (basename, name) if x]
+    if not any(x.startswith(("qwen3.", "qwen3_", "qwen3 ")) for x in labels):
+        return None
+    if any(x.startswith(("qwen3.8", "qwen3_8", "qwen3 8")) for x in labels):
+        if hasattr(ModelArch, "QWEN38_27B"):
+            return ModelArch.QWEN38_27B
+        raise ValueError("Qwen3.8 is not supported by this converter version")
+    if any("omni" in x for x in labels):
+        return ModelArch.QWEN35_OMNI
+    if "qwen35.block_count" in reader.fields:
+        block_count = reader.fields["qwen35.block_count"].contents()
+        mtp = reader.fields.get("qwen35.nextn_predict_layers")
+        layers = block_count - (mtp.contents() if mtp is not None else 0)
+        hidden = reader.fields["qwen35.embedding_length"].contents()
+        arch = _QWEN35_GEOMETRY.get((layers, hidden))
+    else:
+        # the mmproj ("clip") GGUF has no text geometry; the projector output is the text hidden size
+        # (`general.size_label` there is the tower's size, not the model's)
+        layers, hidden = None, reader.fields["clip.vision.projection_dim"].contents()
+        arch = next((a for (_, h), a in _QWEN35_GEOMETRY.items() if h == hidden), None)
+    if arch is None:
+        # falling through would hand a Qwen3.x GGUF to the plain Qwen3 converter and fail much later
+        raise ValueError(f"Qwen3.x GGUF with {layers} layers / hidden {hidden} matches no known size "
+                         f"({sorted(_QWEN35_GEOMETRY)}); pass -f <family>, e.g. -f qwen3.5-27B")
+    print(f"[INFO] Detected {ModelArchNames[arch][0]} ({layers} layers, hidden {hidden})" if layers else
+          f"[INFO] Detected {ModelArchNames[arch][0]} (mmproj, hidden {hidden})")
+    return arch
+
+
 def get_model_arch_from_gguf(reader: GGUFReader, override_model_arch:str="") -> ModelArch:
     """
     Read the model architecture from a GGUF file.
@@ -1119,11 +1204,14 @@ def get_model_arch_from_gguf(reader: GGUFReader, override_model_arch:str="") -> 
     # The architecture is typically stored in the 'general.architecture' field
     arch_str:str|None = None
     basename_str:str|None = None
+    name_str:str|None = None
     for field in reader.fields.values():
         if field.name == 'general.architecture':
             arch_str = str(field.parts[field.data[0]], encoding='utf-8') if field.data else None
         elif field.name == 'general.basename':
             basename_str = str(field.parts[field.data[0]], encoding='utf-8') if field.data else None
+        elif field.name == 'general.name':
+            name_str = str(field.parts[field.data[0]], encoding='utf-8') if field.data else None
     
 
     # Map the architecture string to ModelArch enum
@@ -1133,9 +1221,16 @@ def get_model_arch_from_gguf(reader: GGUFReader, override_model_arch:str="") -> 
                 return arch_enum
     
 
+    is_qwen35_mmproj = (arch_str is not None and arch_str.lower() == "clip"
+                        and "clip.vision.projection_dim" in reader.fields)
+    if arch_str is not None and (arch_str.lower() == "qwen35" or is_qwen35_mmproj):
+        resolved = _resolve_qwen35(reader, basename_str, name_str)
+        if resolved is not None:
+            return resolved
+
     for arch_enum, arch_names in ModelArchNames.items():
         for arch_name in arch_names:
-            if basename_str.lower().startswith(arch_name.lower()):
+            if basename_str is not None and basename_str.lower().startswith(arch_name.lower()):
                 return arch_enum
 
 

@@ -21,13 +21,20 @@ class Qwen35(__Q4NX_Converter, model_arch=ModelArch.QWEN35_4B):
 
         self.q4nx_tensors = {}
         if weights_type == "language":
-            reorder_linear_required = True
-            if self.gguf_reader.fields["qwen35.feed_forward_length"].contents() <= 6144 : # small model, no qk share on linear head
-                reorder_linear_required = False
+            self._drop_mtp_tensors()
+            # llama.cpp stores the delta-net value heads tiled when there are more v heads than
+            # qk groups (4B/9B: 32 over 16); with equal counts (0.8B/2B) there is nothing to undo.
+            n_qk_groups = self.gguf_reader.fields["qwen35.ssm.group_count"].contents()
+            n_v_heads = (self.gguf_reader.fields["qwen35.ssm.inner_size"].contents()
+                         // self.gguf_reader.fields["qwen35.ssm.state_size"].contents())
+            ratio = n_v_heads // n_qk_groups
+            if n_v_heads % n_qk_groups or ratio > 2:
+                raise ValueError(f"{n_v_heads} v heads over {n_qk_groups} qk groups: this converter "
+                                 f"only handles a ratio of 1 or 2 (use the Qwen3.5-27B / Qwen3.8 one)")
+            reorder_linear_required = ratio == 2
             if reorder_linear_required:
                 print("[INFO] Reorder linear required!")
 
-            full_attntion_interval = self.gguf_reader.fields["qwen35.full_attention_interval"].contents()            
             tied_embedding = not self._has_lm_head()
             if tied_embedding:
                 print("[INFO] Model does not have a lm_head, use embedding weights as lm_head")
@@ -62,7 +69,7 @@ class Qwen35(__Q4NX_Converter, model_arch=ModelArch.QWEN35_4B):
 
                 unpacked = gguf_tensor.unpack(self.tensor_q4nx_type_map[gguf_tensor.name])
 
-                if layer_id % full_attntion_interval == (full_attntion_interval - 1):    
+                if self._is_full_attention_layer(layer_id):
                     if "q_proj" in self.forward_name_map[gguf_tensor.name]: # for llama q_proj, the order is special
                         print("[INFO] Seperate q, gate for q_proj")
                         DH = self.gguf_reader.fields["qwen35.attention.value_length"].contents()

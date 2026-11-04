@@ -9,7 +9,7 @@
         "vision_MM_K": 256,
         "vision_MM_N": 64
     },        
-    "default_tensor_type": "Q4_1",
+    "default_tensor_type": "Q4_K",
     "name_map": {
         "embedding": {
             "gguf_name": "token_embd.weight",

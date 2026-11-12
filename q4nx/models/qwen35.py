@@ -126,28 +126,37 @@ class Qwen35(__Q4NX_Converter, model_arch=ModelArch.QWEN35_4B):
 
                     if ("ssm_alpha_proj" in self.forward_name_map[gguf_tensor.name] or "ssm_beta_proj" in self.forward_name_map[gguf_tensor.name]) \
                             and "bf16" not in  self.forward_name_map[gguf_tensor.name]: # for ssm_alpha_proj, the order is special
-               
-                        d, m, qw = unpacked
-                        # save bf16 copy
-                        w = gguf_tensor.dequantize()
-                        if reorder_linear_required:
-                            w = rearrange(w, '(q g) c -> (g q) c', q = 2).contiguous()
 
-                        # new_name = self.forward_name_map[gguf_tensor.name]
-                        # new_name = new_name.replace("alpha_proj", "alpha_proj.bf16").replace("beta_proj", "beta_proj.bf16")
-                        # self.q4nx_tensors[new_name] = w  sdfsdf
-                        if reorder_linear_required:
-                            print(f"[INFO] Reorder for {self.forward_name_map[gguf_tensor.name]}")
-                            d = rearrange(d, '(q g) c -> (g q) c', q = 2).contiguous()
-                            m = rearrange(m, '(q g) c -> (g q) c', q = 2).contiguous()
-                            qw = rearrange(qw, '(q g) c -> (g q) c', q = 2).contiguous()
+                        if len(unpacked) == 3:
+                            d, m, qw = unpacked
+                            # save bf16 copy
+                            w = gguf_tensor.dequantize()
+                            if reorder_linear_required:
+                                w = rearrange(w, '(q g) c -> (g q) c', q = 2).contiguous()
 
-                        if (d.shape[0] < 32): # duplicate on the first dimension for better performance when the state size is small
-                            d = repeat(d, 'd c -> (r d) c', r = 2).contiguous()
-                            m = repeat(m, 'd c -> (r d) c', r = 2).contiguous()
-                            qw = repeat(qw, 'd c -> (r d) c', r = 2).contiguous()
+                            new_name = self.forward_name_map[gguf_tensor.name]
+                            new_name = new_name.replace("alpha_proj", "alpha_proj.bf16").replace("beta_proj", "beta_proj.bf16")
+                            self.q4nx_tensors[new_name] = w
+                            if reorder_linear_required:
+                                print(f"[INFO] Reorder for {self.forward_name_map[gguf_tensor.name]}")
+                                d = rearrange(d, '(q g) c -> (g q) c', q = 2).contiguous()
+                                m = rearrange(m, '(q g) c -> (g q) c', q = 2).contiguous()
+                                qw = rearrange(qw, '(q g) c -> (g q) c', q = 2).contiguous()
 
-                        unpacked = (d, m, qw)
+                            if (d.shape[0] < 32): # duplicate on the first dimension for better performance when the state size is small
+                                d = repeat(d, 'd c -> (r d) c', r = 2).contiguous()
+                                m = repeat(m, 'd c -> (r d) c', r = 2).contiguous()
+                                qw = repeat(qw, 'd c -> (r d) c', r = 2).contiguous()
+
+                            unpacked = (d, m, qw)
+                        else:
+                            # save in bf16 into the file
+                            w = unpacked[0].contiguous().to(torch.bfloat16)
+                            if reorder_linear_required:
+                                w = rearrange(w, '(q g) c -> (g q) c', q = 2).contiguous()
+                            # save matrix in colum major order instead
+                            self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = w.clone().transpose(0,1).contiguous()
+                            continue
 
 
                     if "ssm_conv1d" in self.forward_name_map[gguf_tensor.name]:

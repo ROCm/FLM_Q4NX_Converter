@@ -13,6 +13,7 @@ class ModelArch(IntEnum):
     QWEN35_9B = auto()
     QWEN35_OMNI = auto()
     QWEN35_A3B=auto()
+    QWEN38_27B = auto()
     QWEN2   = auto()
     QWEN2VL = auto()
     GEMMA3  = auto()
@@ -25,6 +26,7 @@ class ModelArch(IntEnum):
 
 
 ModelArchNames: dict[ModelArch, list[str]] = {
+    ModelArch.QWEN38_27B: ["qwen3.8-27B", "qwen38-27B"],  # ahead of "qwen3": -f matches by prefix
     ModelArch.QWEN35_08B: ["qwen35-0.8B","qwen3.5-0.8B"],
     ModelArch.QWEN35_4B:  ["qwen35-4B","qwen3.5-4B"],    
     ModelArch.QWEN35_9B:  ["qwen35-9B","qwen3.5-9B"],       
@@ -55,6 +57,7 @@ ModelArchConfigs: dict[ModelArch, str] = {
     ModelArch.QWEN35_OMNI: "qwen3.5_omni.json",
     ModelArch.QWEN35_A3B: "qwen3.5_a3b.json",
     ModelArch.QWEN35_08B: "qwen3.5_0.8b.json",
+    ModelArch.QWEN38_27B: "qwen3.8_27b.json",
     ModelArch.GEMMA3:  "gemma3.json",
     ModelArch.GEMMA4:  "gemma4.json",
     ModelArch.LLAMA:   "llama.json",

@@ -1134,6 +1134,7 @@ _QWEN35_GEOMETRY = {
     (24, 2048): ModelArch.QWEN35_2B,
     (32, 2560): ModelArch.QWEN35_4B,
     (32, 4096): ModelArch.QWEN35_9B,
+    (64, 5120): ModelArch.QWEN38_27B,
 }
 if hasattr(ModelArch, "QWEN35_27B"):
     _QWEN35_GEOMETRY[(64, 5120)] = ModelArch.QWEN35_27B
@@ -1152,9 +1153,7 @@ def _resolve_qwen35(reader: GGUFReader, basename: str | None, name: str | None) 
     if not any(x.startswith(("qwen3.", "qwen3_", "qwen3 ")) for x in labels):
         return None
     if any(x.startswith(("qwen3.8", "qwen3_8", "qwen3 8")) for x in labels):
-        if hasattr(ModelArch, "QWEN38_27B"):
-            return ModelArch.QWEN38_27B
-        raise ValueError("Qwen3.8 is not supported by this converter version")
+        return ModelArch.QWEN38_27B
     if any("omni" in x for x in labels):
         return ModelArch.QWEN35_OMNI
     if "qwen35.block_count" in reader.fields:

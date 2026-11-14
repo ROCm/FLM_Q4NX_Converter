@@ -89,6 +89,24 @@ def _refit_one_side(t: np.ndarray, search: int = 3,
     return (sigma * best_P).astype(np.float32), best_p
 
 
+def _q4k_triple_from_floats(w: torch.Tensor):
+    """Encode float weights into the (scale, min, quants) triple `_pack_q4k` expects.
+
+    gguf has no Q4_K encoder, and the FLM q4_k packer works on the effective
+    per-group scale and the *subtracted* min in float32, so build those directly
+    from the dequantized weights (one group of 32 columns, zero-point = group min).
+    """
+    w = w.to(torch.float32)
+    rows, cols = w.shape
+    assert cols % 32 == 0, "Q4_K needs a multiple of 32 columns"
+    g = w.view(rows, cols // 32, 32)
+    mn = g.min(dim=-1).values
+    mx = g.max(dim=-1).values
+    scale = ((mx - mn) / 15.0).clamp(min=1e-8)
+    qv = torch.round((g - mn.unsqueeze(-1)) / scale.unsqueeze(-1)).clamp(0, 15)
+    return scale.contiguous(), (-mn).contiguous(), qv.reshape(rows, cols).to(torch.uint8)
+
+
 class GGUFTensor:
     name: str
     shape: Tuple[int, ...]
@@ -357,17 +375,34 @@ class GGUFTensor:
 
     def get_used_quantization_type(self, default_tensor_type: GGMLQuantizationType) -> GGMLQuantizationType:
         
+        # An explicit non-quantized / 8-bit target in the config always wins: the FLM
+        # q4nx layout for those tensors is fixed (e.g. ssm_alpha/beta are Q8_0 in the
+        # official Qwen3.5-9B build even when the source GGUF ships them as Q4_K).
+        if default_tensor_type in (GGMLQuantizationType.Q8_0, GGMLQuantizationType.BF16,
+                                   GGMLQuantizationType.F32, GGMLQuantizationType.F16):
+            return default_tensor_type
+
         if self.tensor_type in [GGMLQuantizationType.F32, GGMLQuantizationType.F16, GGMLQuantizationType.BF16, GGMLQuantizationType.Q4_0, GGMLQuantizationType.Q4_1, GGMLQuantizationType.Q8_0, GGMLQuantizationType.MXFP4, GGMLQuantizationType.Q4_K]:
             return self.tensor_type
         else:
             # For unsupported types, we will dequantize and then quantize to default_tensor_type.
-            # Q4_K is a read-only format here -- nothing can encode into it -- so a
-            # config asking for it as the fallback target gets Q4_1 instead.
-            if default_tensor_type == GGMLQuantizationType.Q4_K:
-                return GGMLQuantizationType.Q4_1
+            # Q4_K fallback is supported: unpack() builds the (scale, min, quants) triple
+            # directly from the dequantized floats, so it can encode into the FLM q4_k layout.
             return default_tensor_type
 
     def unpack(self, default_tensor_type: GGMLQuantizationType) -> np.ndarray:
+        # Explicit 8-bit / q4_k targets must be produced even when the GGUF ships the
+        # tensor in another (otherwise supported) type: re-quantize from the floats
+        # instead of handing the source layout to the packer.
+        if (default_tensor_type in (GGMLQuantizationType.Q8_0, GGMLQuantizationType.Q4_K)
+                and self.tensor_type != default_tensor_type):
+            w = dequantize(self.data, self.tensor_type)
+            w = torch.from_numpy(w).contiguous().to(torch.float32)
+            if default_tensor_type == GGMLQuantizationType.Q8_0:
+                q = quantize(w.numpy(), GGMLQuantizationType.Q8_0).copy()
+                return self.unpack_q8_0(q, self.shape[0])
+            return _q4k_triple_from_floats(w)
+
         if self.tensor_type == GGMLQuantizationType.F32:
             return [torch.Tensor(np.array(self.data.view(np.float32)))]
         elif self.tensor_type == GGMLQuantizationType.F16:
@@ -406,6 +441,12 @@ class GGUFTensor:
                 w = dequantize(self.data, self.tensor_type)
                 w = torch.from_numpy(w).contiguous().to(torch.bfloat16)
                 
+                if default_tensor_type == GGMLQuantizationType.Q4_K:
+                    # gguf has no Q4_K encoder: build the effective per-group scale /
+                    # subtracted min / uint4 quants straight from the floats, which is
+                    # exactly what _pack_q4k() expects before its bf16+uint8 re-fit.
+                    return _q4k_triple_from_floats(w)
+
                 w = w.to(torch.float32).numpy()
                 data_quantized = quantize(w, default_tensor_type).copy()
                 if default_tensor_type == GGMLQuantizationType.Q4_1:

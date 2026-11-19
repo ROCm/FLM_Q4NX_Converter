@@ -24,6 +24,40 @@ class Gemma4(__Q4NX_Converter, model_arch=ModelArch.GEMMA4):
     
     
     
+    def _quantize_embedding_int8(self, weight: torch.Tensor, group_size: int = 32):
+        """
+        Quantize an embedding-table weight (rows=vocab, cols=hidden) into
+        the plain per-row / per-group symmetric int8 format expected by
+        the FLM runtime for lookup-style tensors (as opposed to the
+        packed block format used for matmul weights).
+
+        For every row, the columns are split into contiguous groups of
+        `group_size` elements. Each group gets its own scale:
+            scale = max(|group|) / 127
+            q = round(group / scale), clamped to [-127, 127]
+
+        Returns
+        -------
+        (q4nx_weight, q4nx_scale) : Tuple[torch.Tensor, torch.Tensor]
+            q4nx_weight: int8 tensor of shape (rows, cols)
+            q4nx_scale:  float32 tensor of shape (rows, cols // group_size)
+        """
+        assert weight.ndim == 2, "Embedding weight must be a 2D matrix"
+        rows, cols = weight.shape
+        assert cols % group_size == 0, f"Embedding hidden size {cols} must be divisible by group_size {group_size}"
+
+        w = weight.to(torch.float32)
+        w_grouped = w.view(rows, cols // group_size, group_size)
+
+        amax = w_grouped.abs().amax(dim=-1)
+        scale = (amax / 127.0).clamp(min=1e-8)
+
+        q = torch.round(w_grouped / scale.unsqueeze(-1)).clamp(-127, 127).to(torch.int8)
+        q = q.reshape(rows, cols).contiguous()
+        scale = scale.to(torch.float32).contiguous()
+
+        return q, scale
+
     def reshape_matrix_to_block_matrix_for_mvm(self, weight: torch.Tensor, row_block_size: int=32) -> torch.Tensor:
         """
             Assume the weights is a 2D matrix of W x H
@@ -68,17 +102,23 @@ class Gemma4(__Q4NX_Converter, model_arch=ModelArch.GEMMA4):
                 self.q4nx_tensors["lm_head.weight"] = self._pack_q4nx(*unpacked)      
 
             for key, gguf_tensor in self.gguf_tensors.items():
-                if "token_embd.weight"  == gguf_tensor.name: # this should be bf16
+                if "token_embd.weight"  == gguf_tensor.name:
                     w = dequantize(gguf_tensor.data, gguf_tensor.tensor_type)
                     w = w * float(self.hidden_size) **0.5
-                    w = torch.from_numpy(w).contiguous().to(torch.bfloat16)
-                    self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = w
+                    w = torch.from_numpy(w).contiguous()
+                    q_w, scale = self._quantize_embedding_int8(w)
+                    name = self.forward_name_map[gguf_tensor.name]
+                    self.q4nx_tensors[name] = q_w
+                    self.q4nx_tensors[f"{name}.scale"] = scale
                     continue
                 elif "per_layer_token_embd.weight"  ==  gguf_tensor.name:
                     w = dequantize(gguf_tensor.data, gguf_tensor.tensor_type)
                     w = w*float(self.embedding_length_per_layer_input)**0.5
-                    w = torch.from_numpy(w).contiguous().to(torch.bfloat16)
-                    self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = w
+                    w = torch.from_numpy(w).contiguous()
+                    q_w, scale = self._quantize_embedding_int8(w)
+                    name = self.forward_name_map[gguf_tensor.name]
+                    self.q4nx_tensors[name] = q_w
+                    self.q4nx_tensors[f"{name}.scale"] = scale
                     continue
                 elif "per_layer_model_proj.weight" in gguf_tensor.name:
                     unpacked = gguf_tensor.unpack(self.tensor_q4nx_type_map[gguf_tensor.name])

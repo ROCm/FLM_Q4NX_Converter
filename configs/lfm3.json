@@ -83,6 +83,11 @@
             "gguf_name": "blk.{bid}.attn_gate.weight",
             "q4nx_name": "model.layers.{bid}.self_attn.gate_proj.weight",
             "default_tensor_type": "BF16"
+        },
+        "lm_head": {
+            "gguf_name": "output.weight",
+            "q4nx_name": "lm_head.weight",
+            "default_tensor_type": "Q4_1"
         }
     }
 }

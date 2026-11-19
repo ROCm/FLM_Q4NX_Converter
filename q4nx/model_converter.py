@@ -1152,9 +1152,7 @@ def _resolve_qwen35(reader: GGUFReader, basename: str | None, name: str | None) 
     if not any(x.startswith(("qwen3.", "qwen3_", "qwen3 ")) for x in labels):
         return None
     if any(x.startswith(("qwen3.8", "qwen3_8", "qwen3 8")) for x in labels):
-        if hasattr(ModelArch, "QWEN38_27B"):
-            return ModelArch.QWEN38_27B
-        raise ValueError("Qwen3.8 is not supported by this converter version")
+        return ModelArch.QWEN38_27B
     if any("omni" in x for x in labels):
         return ModelArch.QWEN35_OMNI
     if "qwen35.block_count" in reader.fields:
@@ -1170,8 +1168,8 @@ def _resolve_qwen35(reader: GGUFReader, basename: str | None, name: str | None) 
         arch = next((a for (_, h), a in _QWEN35_GEOMETRY.items() if h == hidden), None)
     if arch is None:
         # falling through would hand a Qwen3.x GGUF to the plain Qwen3 converter and fail much later
-        raise ValueError(f"Qwen3.x GGUF with {layers} layers / hidden {hidden} matches no known size "
-                         f"({sorted(_QWEN35_GEOMETRY)}); pass -f <family>, e.g. -f qwen3.5-27B")
+        raise ValueError(f"Qwen3.x GGUF with {layers} layers / hidden {hidden} matches no supported size "
+                         f"({sorted(_QWEN35_GEOMETRY)}); if the name is wrong, pass -f <family>, e.g. -f qwen3.5-9B")
     print(f"[INFO] Detected {ModelArchNames[arch][0]} ({layers} layers, hidden {hidden})" if layers else
           f"[INFO] Detected {ModelArchNames[arch][0]} (mmproj, hidden {hidden})")
     return arch

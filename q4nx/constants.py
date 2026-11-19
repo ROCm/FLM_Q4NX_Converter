@@ -22,6 +22,7 @@ class ModelArch(IntEnum):
     PHI4    = auto()
     GPT_OSS = auto()
     NANBEIGE = auto()
+    GEMMA4_12B = auto()
 
 
 ModelArchNames: dict[ModelArch, list[str]] = {
@@ -35,6 +36,7 @@ ModelArchNames: dict[ModelArch, list[str]] = {
     ModelArch.QWEN2VL: ["qwen2.5-Vl"],    
     ModelArch.QWEN2:   ["qwen2"],
     ModelArch.QWEN3:   ["qwen3"],
+    ModelArch.GEMMA4_12B: ["gemma4-12b", "gemma-4-12b"],  # ahead of "gemma4": -f matches by prefix
     ModelArch.GEMMA3:  ["gemma3", "Medgemma", "Gemma-3"],
     ModelArch.GEMMA4:  ["gemma4", "Gemma-4"],
     ModelArch.LLAMA:   ["llama"],
@@ -57,6 +59,7 @@ ModelArchConfigs: dict[ModelArch, str] = {
     ModelArch.QWEN35_08B: "qwen3.5_0.8b.json",
     ModelArch.GEMMA3:  "gemma3.json",
     ModelArch.GEMMA4:  "gemma4.json",
+    ModelArch.GEMMA4_12B: "gemma4_12b.json",
     ModelArch.LLAMA:   "llama.json",
     ModelArch.LFM2:    "lfm2.json",
     ModelArch.PHI4:    "phi4.json",

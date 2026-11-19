@@ -1134,7 +1134,6 @@ _QWEN35_GEOMETRY = {
     (24, 2048): ModelArch.QWEN35_2B,
     (32, 2560): ModelArch.QWEN35_4B,
     (32, 4096): ModelArch.QWEN35_9B,
-    (64, 5120): ModelArch.QWEN38_27B,
 }
 if hasattr(ModelArch, "QWEN35_27B"):
     _QWEN35_GEOMETRY[(64, 5120)] = ModelArch.QWEN35_27B
@@ -1169,8 +1168,8 @@ def _resolve_qwen35(reader: GGUFReader, basename: str | None, name: str | None) 
         arch = next((a for (_, h), a in _QWEN35_GEOMETRY.items() if h == hidden), None)
     if arch is None:
         # falling through would hand a Qwen3.x GGUF to the plain Qwen3 converter and fail much later
-        raise ValueError(f"Qwen3.x GGUF with {layers} layers / hidden {hidden} matches no known size "
-                         f"({sorted(_QWEN35_GEOMETRY)}); pass -f <family>, e.g. -f qwen3.5-27B")
+        raise ValueError(f"Qwen3.x GGUF with {layers} layers / hidden {hidden} matches no supported size "
+                         f"({sorted(_QWEN35_GEOMETRY)}); if the name is wrong, pass -f <family>, e.g. -f qwen3.5-9B")
     print(f"[INFO] Detected {ModelArchNames[arch][0]} ({layers} layers, hidden {hidden})" if layers else
           f"[INFO] Detected {ModelArchNames[arch][0]} (mmproj, hidden {hidden})")
     return arch

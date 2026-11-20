@@ -142,6 +142,8 @@ class __Q4NX_Converter(ABC):
             return GGMLQuantizationType.Q4_K
         elif q4nx_name == "BF16":
             return GGMLQuantizationType.BF16
+        elif q4nx_name == "F32":
+            return GGMLQuantizationType.F32
 
         else:
             raise ValueError(f"Unsupported q4nx_name: {q4nx_name}")
@@ -1177,6 +1179,26 @@ def _resolve_qwen35(reader: GGUFReader, basename: str | None, name: str | None) 
     return arch
 
 
+def _resolve_gemma4(reader: GGUFReader, arch_str: str | None) -> ModelArch | None:
+    """Gemma4-12B shares `general.architecture = gemma4` with E2B/E4B but has no per-layer inputs and its own packing.
+
+    Returns None for the E-series (and anything that is not Gemma 4), so it keeps resolving to GEMMA4.
+    """
+    arch = (arch_str or "").lower()
+    if arch == "clip":
+        projector = reader.fields.get("clip.vision.projector_type")
+        return ModelArch.GEMMA4_12B if projector is not None and projector.contents() == "gemma4uv" else None
+    per_layer = reader.fields.get("gemma4.embedding_length_per_layer_input")
+    if arch != "gemma4" or per_layer is None or per_layer.contents() > 0:
+        return None
+    geometry = (reader.fields["gemma4.block_count"].contents(), reader.fields["gemma4.embedding_length"].contents())
+    if geometry != (48, 3840):
+        # 26B-A4B and 31B also have no per-layer inputs; neither converter packs them right
+        raise ValueError(f"Gemma 4 GGUF with {geometry[0]} layers / hidden {geometry[1]} is not supported "
+                         "(supported: E2B, E4B, 12B)")
+    return ModelArch.GEMMA4_12B
+
+
 def get_model_arch_from_gguf(reader: GGUFReader, override_model_arch:str="") -> ModelArch:
     """
     Read the model architecture from a GGUF file.
@@ -1213,6 +1235,10 @@ def get_model_arch_from_gguf(reader: GGUFReader, override_model_arch:str="") -> 
         elif field.name == 'general.name':
             name_str = str(field.parts[field.data[0]], encoding='utf-8') if field.data else None
     
+
+    resolved = _resolve_gemma4(reader, arch_str)
+    if resolved is not None:
+        return resolved
 
     # Map the architecture string to ModelArch enum
     for arch_enum, arch_names in ModelArchNames.items():

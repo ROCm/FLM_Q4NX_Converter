@@ -3,7 +3,8 @@
         "row_block_size": 32,
         "col_block_size": 256,
         "parallel_size": 16,
-        "keep_block_in_2D": false
+        "keep_block_in_2D": false,
+        "optimize_ddr": true
     },
     "vision_config":{
         "vision_MM_K": 256,

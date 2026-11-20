@@ -3,7 +3,8 @@
         "row_block_size": 32,
         "col_block_size": 256,
         "parallel_size": 16,
-        "keep_block_in_2D": false
+        "keep_block_in_2D": false,
+        "optimize_ddr": true
     },
     "default_tensor_type": "Q4_0",
     "name_map": {

@@ -19,7 +19,7 @@ class LFM2(__Q4NX_Converter, model_arch=ModelArch.LFM2):
 
         if not self._has_lm_head():
             print("[INFO] Model does not have a lm_head, use embedding weights as lm_head")
-            unpacked = self.gguf_tensors["token_embd.weight"].unpack(GGMLQuantizationType.Q4_1)
+            unpacked = self.gguf_tensors["token_embd.weight"].unpack_as(self.default_tensor_type)
             self.q4nx_tensors["lm_head.weight"] = self._pack_q4nx(*unpacked)
 
         for key, gguf_tensor in self.gguf_tensors.items():
@@ -29,7 +29,7 @@ class LFM2(__Q4NX_Converter, model_arch=ModelArch.LFM2):
                 self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = w
                 continue
 
-            unpacked = gguf_tensor.unpack(self.default_tensor_type)
+            unpacked = gguf_tensor.unpack_as(self.default_tensor_type)
             self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = self._pack_q4nx(*unpacked)
 
         self._export_q4nx_tensors(q4nx_path)

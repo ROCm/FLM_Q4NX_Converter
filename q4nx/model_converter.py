@@ -735,12 +735,13 @@ class __Q4NX_Converter(ABC):
             # dm done
 
             qw = rearrange(qw, '(p r) (q c) -> (p q) r c', r = self.row_block_size, c = self.col_block_size)
-            qw = rearrange(qw, 'n (r b) c -> n c r b', b = NUM_int4_in_byte).contiguous().to(torch.int8)
+            qw = rearrange(qw, 'n (g r) c -> n g r c', r = self.parallel_size)
+            qw = rearrange(qw, 'n g (r b) c -> n g c r b', b = NUM_int4_in_byte).contiguous().to(torch.int8)
 
             qw[..., 1] = torch.bitwise_and(torch.bitwise_left_shift(qw[..., 1], 4), 0xF0)
             qw[..., 0] = torch.bitwise_or(torch.bitwise_and(qw[..., 0], 0x0F), qw[..., 1])
             qw = qw[..., 0].contiguous()
-            qw = rearrange(qw, 'n c r -> n (c r)').contiguous()
+            qw = rearrange(qw, 'n g c r -> n (g c r)').contiguous()
         else:
             # chunk wise
             d = rearrange(d, '(p r) (q c) -> p q (c r)', r = self.row_block_size, c = self.col_block_size // Q4_group_size).contiguous()
@@ -748,12 +749,13 @@ class __Q4NX_Converter(ABC):
             # dm done
 
             qw = rearrange(qw, '(p r) (q c) -> p q r c', r = self.row_block_size, c = self.col_block_size)
-            qw = rearrange(qw, 'p q (r b) c -> p q c r b', b = NUM_int4_in_byte).contiguous().to(torch.int8)
+            qw = rearrange(qw, 'p q (g r) c -> p q g r c', r = self.parallel_size)
+            qw = rearrange(qw, 'p q g (r b) c -> p q g c r b', b = NUM_int4_in_byte).contiguous().to(torch.int8)
 
             qw[..., 1] = torch.bitwise_and(torch.bitwise_left_shift(qw[..., 1], 4), 0xF0)
             qw[..., 0] = torch.bitwise_or(torch.bitwise_and(qw[..., 0], 0x0F), qw[..., 1])
             qw = qw[..., 0].contiguous()
-            qw = rearrange(qw, 'p q c r -> p q (c r)').contiguous()
+            qw = rearrange(qw, 'p q g c r -> p q (g c r)').contiguous()
             
             
             

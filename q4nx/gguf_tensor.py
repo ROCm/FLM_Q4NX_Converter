@@ -367,6 +367,22 @@ class GGUFTensor:
                 return GGMLQuantizationType.Q4_1
             return default_tensor_type
 
+    def unpack_as(self, tensor_type: GGMLQuantizationType):
+        """unpack(), with the result always in tensor_type's own layout.
+
+        unpack() hands Q4_K, Q8_0 and other-Q4 sources back in their source layout (Q4_K's min is subtracted, Q4_0's
+        quants are signed, Q8_0's are int8), and _pack_q4nx reads every triple as tensor_type, so those sources are
+        re-quantized to tensor_type first (dequantized, for a float target). Float sources pass through as before.
+        """
+        floats = (GGMLQuantizationType.F32, GGMLQuantizationType.F16, GGMLQuantizationType.BF16)
+        if self.tensor_type in floats or self.tensor_type == tensor_type:
+            return self.unpack(tensor_type)
+        w = self.dequantize()
+        if tensor_type in floats:
+            return [w]
+        data = quantize(w.to(torch.float32).numpy(), tensor_type)
+        return GGUFTensor(self.name, self.shape, data, tensor_type).unpack(tensor_type)
+
     def unpack(self, default_tensor_type: GGMLQuantizationType) -> np.ndarray:
         if self.tensor_type == GGMLQuantizationType.F32:
             return [torch.Tensor(np.array(self.data.view(np.float32)))]

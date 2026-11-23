@@ -20,7 +20,7 @@ class Qwen2(__Q4NX_Converter, model_arch=ModelArch.QWEN2):
 
         if not self._has_lm_head():
             print("[INFO] Model does not have a lm_head, use embedding weights as lm_head")
-            unpacked = self.gguf_tensors["token_embd.weight"].unpack(self.default_tensor_type)
+            unpacked = self.gguf_tensors["token_embd.weight"].unpack_as(self.default_tensor_type)
             self.q4nx_tensors["lm_head.weight"] = self._pack_q4nx(*unpacked)
 
         for key, gguf_tensor in self.gguf_tensors.items():
@@ -30,7 +30,7 @@ class Qwen2(__Q4NX_Converter, model_arch=ModelArch.QWEN2):
                 self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = w
                 continue
 
-            unpacked = gguf_tensor.unpack(self.default_tensor_type)
+            unpacked = gguf_tensor.unpack_as(self.default_tensor_type)
 
             if "ffn_down.weight" in gguf_tensor.name: # special padding to multiple of 512
                 d, m, q = unpacked

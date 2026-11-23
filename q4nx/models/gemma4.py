@@ -64,7 +64,7 @@ class Gemma4(__Q4NX_Converter, model_arch=ModelArch.GEMMA4):
             
             if not self._has_lm_head():
                 print("[INFO] Model does not have a lm_head, use embedding weights as lm_head")
-                unpacked = self.gguf_tensors["token_embd.weight"].unpack(self.default_tensor_type)
+                unpacked = self.gguf_tensors["token_embd.weight"].unpack_as(self.default_tensor_type)
                 self.q4nx_tensors["lm_head.weight"] = self._pack_q4nx(*unpacked)      
 
             for key, gguf_tensor in self.gguf_tensors.items():
@@ -81,7 +81,7 @@ class Gemma4(__Q4NX_Converter, model_arch=ModelArch.GEMMA4):
                     self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = w
                     continue
                 elif "per_layer_model_proj.weight" in gguf_tensor.name:
-                    unpacked = gguf_tensor.unpack(self.tensor_q4nx_type_map[gguf_tensor.name])
+                    unpacked = gguf_tensor.unpack_as(self.tensor_q4nx_type_map[gguf_tensor.name])
                     w=unpacked[0]
                     
                     # since output projection == self.embedding_length_per_layer_input* self.num_layers, we want to actually split the matrxi
@@ -110,7 +110,7 @@ class Gemma4(__Q4NX_Converter, model_arch=ModelArch.GEMMA4):
                                         
                 elif "inp_gate.weight" in gguf_tensor.name or ".proj.weight" in gguf_tensor.name:
                     
-                    unpacked = gguf_tensor.unpack(self.tensor_q4nx_type_map[gguf_tensor.name])
+                    unpacked = gguf_tensor.unpack_as(self.tensor_q4nx_type_map[gguf_tensor.name])
                     
                     
                     if "inp_gate.weight" in gguf_tensor.name or ".proj.weight" in gguf_tensor.name:
@@ -126,7 +126,7 @@ class Gemma4(__Q4NX_Converter, model_arch=ModelArch.GEMMA4):
                     
                     continue
                 
-                unpacked = gguf_tensor.unpack(self.tensor_q4nx_type_map[gguf_tensor.name])
+                unpacked = gguf_tensor.unpack_as(self.tensor_q4nx_type_map[gguf_tensor.name])
 
                 torch.set_printoptions(threshold=16, edgeitems=5, linewidth=200)
 

@@ -21,7 +21,7 @@ class Nanbeige(__Q4NX_Converter, model_arch=ModelArch.NANBEIGE):
 
         if not self._has_lm_head():
             print("[INFO] Model does not have a lm_head, use embedding weights as lm_head")
-            unpacked = self.gguf_tensors["token_embd.weight"].unpack(self.default_tensor_type)
+            unpacked = self.gguf_tensors["token_embd.weight"].unpack_as(self.default_tensor_type)
             self.q4nx_tensors["lm_head.weight"] = self._pack_q4nx(*unpacked)
 
         for key, gguf_tensor in self.gguf_tensors.items():
@@ -31,7 +31,7 @@ class Nanbeige(__Q4NX_Converter, model_arch=ModelArch.NANBEIGE):
                 self.q4nx_tensors[self.forward_name_map[gguf_tensor.name]] = w
                 continue
 
-            unpacked = gguf_tensor.unpack(self.default_tensor_type)
+            unpacked = gguf_tensor.unpack_as(self.default_tensor_type)
 
             if "q_proj" in self.forward_name_map[gguf_tensor.name] or "k_proj" in self.forward_name_map[gguf_tensor.name]: # for llama q_proj, the order is special
                 # 0, 1, 2, .... 127

@@ -133,9 +133,9 @@ class Qwen35(__Q4NX_Converter, model_arch=ModelArch.QWEN35_4B):
                         if reorder_linear_required:
                             w = rearrange(w, '(q g) c -> (g q) c', q = 2).contiguous()
 
-                        # new_name = self.forward_name_map[gguf_tensor.name]
-                        # new_name = new_name.replace("alpha_proj", "alpha_proj.bf16").replace("beta_proj", "beta_proj.bf16")
-                        # self.q4nx_tensors[new_name] = w  sdfsdf
+                        new_name = self.forward_name_map[gguf_tensor.name]
+                        new_name = new_name.replace("alpha_proj", "alpha_proj.bf16").replace("beta_proj", "beta_proj.bf16")
+                        self.q4nx_tensors[new_name] = w
                         if reorder_linear_required:
                             print(f"[INFO] Reorder for {self.forward_name_map[gguf_tensor.name]}")
                             d = rearrange(d, '(q g) c -> (g q) c', q = 2).contiguous()
